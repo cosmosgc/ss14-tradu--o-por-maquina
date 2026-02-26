@@ -128,54 +128,70 @@ class KeyFinder:
         self.log_not_exist_en_files(en_file, pt_file_parsed, en_file_parsed)
 
 
-    def translate_text(self, text, target_lang='pt'):
-        """Translate text to the target language using Google Translate."""
-        from googletrans import Translator
-        translator = Translator()
+    def translate_text(self, text, target_lang='pt', use_google=True):
+        """Translate text to the target language using Google Translate or Argos Translate, based on `use_google` flag."""
 
-        # Skip translation for empty or whitespace-only strings
         if not text.strip():
-            logger.warn(f'Pulando por ser vazio: "{text}"')
+            logger.warning(f'Pulando por ser vazio: "{text}"')
             return text
-
-        # Skip translation for single-character strings
         if len(text.strip()) == 1:
-            logger.warn(f'Pulando por ser simples demais: "{text}"')
+            logger.warning(f'Pulando por ser simples demais: "{text}"')
             return text
-
-        # Skip translation for single word (no spaces)
         if len(text.split()) == 1:
-            logger.warn(f'Pulando por ser uma única palavra: "{text}"')
+            logger.warning(f'Pulando por ser uma única palavra: "{text}"')
             return text
-        
+
         text = re.sub(r'%\w+%', '', text)
-
-        # Capture leading and trailing whitespace
-        leading_spaces = len(text) - len(text.lstrip())  # Count leading spaces
-        trailing_spaces = len(text) - len(text.rstrip())  # Count trailing spaces
-
-        # Strip the text to remove all leading/trailing spaces for translation
+        leading_spaces = len(text) - len(text.lstrip())
+        trailing_spaces = len(text) - len(text.rstrip())
         stripped_text = text.strip()
 
-        attempt = 0
-        max_attempts = 3
-
-        while attempt < max_attempts:
+        if use_google:
             try:
-                # logging.info(f'Attempting to translate: {text}')
-                translation = translator.translate(stripped_text, dest=target_lang)
-                # Re-add the leading and trailing spaces
-                translated_text = translation.text
-                translated_text = ' ' * leading_spaces + translated_text + ' ' * trailing_spaces
+                from googletrans import Translator
+                translator = Translator()
+                attempt = 0
+                max_attempts = 3
+                while attempt < max_attempts:
+                    try:
+                        translation = translator.translate(stripped_text, dest=target_lang)
+                        translated_text = translation.text
+                        translated_text = ' ' * leading_spaces + translated_text + ' ' * trailing_spaces
+                        return translated_text
+                    except Exception as e:
+                        logger.error(f'Erro n {attempt + 1} com Google Translate para o texto "{text}": {e}')
+                        attempt += 1
+                        time.sleep(1)
+                logger.error(f'Falhou de traduzir com Google Translate após {max_attempts} tentativas.')
+                return text
+            except ImportError:
+                logger.error("googletrans não está instalado.")
+                return text
 
+        else:
+            try:
+                import argostranslate.package
+                import argostranslate.translate
+
+                from_lang_code = "en"
+                to_lang_code = target_lang
+
+                installed_languages = argostranslate.translate.get_installed_languages()
+                from_lang = next((lang for lang in installed_languages if lang.code == from_lang_code), None)
+                to_lang = next((lang for lang in installed_languages if lang.code == to_lang_code), None)
+
+                if not from_lang or not to_lang:
+                    logger.error(f'Linguagens não instaladas: {from_lang_code} -> {to_lang_code}')
+                    return text
+
+                translation = from_lang.get_translation(to_lang)
+                translated_text = translation.translate(stripped_text)
+                translated_text = ' ' * leading_spaces + translated_text + ' ' * trailing_spaces
                 return translated_text
+
             except Exception as e:
-                logger.error(f'Erro n {attempt + 1} para o texto "{text}": {e}')
-                attempt += 1
-                time.sleep(1)  # Wait for 1 second between attempts
-                if attempt == max_attempts:
-                    logger.error(f'Falhou de traduzir "{text}" depois de {max_attempts} tentativas.')
-                    return text  # Return the original text if translation fails
+                logger.error(f'Erro com Argos Translate para o texto "{text}": {e}')
+                return text
 
 
     def write_to_pt_files(self, pt_file, pt_file_parsed, en_file_parsed):
